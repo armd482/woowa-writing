@@ -17,3 +17,9 @@
 ### 용서할 줄 안다는 것
 
 [바로가기▶️](https://github.com/lurgi/woowa-writing/blob/main/level3.md)
+
+## 4️⃣ Level 4 - technical writing
+
+### Next.js vs Remix 뭐가 더 좋을까?
+
+[바로가기▶️](https://github.com/lurgi/woowa-writing/blob/main/technical.md)
