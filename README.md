@@ -1,3 +1,4 @@
+
 # 프로젝트 '오디' 핵심기능 구현일지 : 실시간 친구 도착 예정정보 공유 기능
 
 ---
@@ -130,6 +131,7 @@ ex) 2분전에 갱신된 소요시간이 10분이라면 8분이 남았다고 반
 | currentLatitude | String | 현재 위도 | X |
 | currentLongitude | String | 현재 경도 | X |
 
+
 위경도 좌표는 디바이스에서 사용자가 위치정보 접근 허용권한을 꺼놓았을 수도 있으므로 null값을 허용했습니다.
 
 **ResponseBody**
@@ -182,6 +184,7 @@ ex) 2분전에 갱신된 소요시간이 10분이라면 8분이 남았다고 반
 
 **ex2) 약속 시간 후 : LATE - ARRIVED 로 도착 여부를 판정하게 된다**
 
+
 ```json
 {
   "ownerNickname" : "카키공주",
@@ -193,6 +196,49 @@ ex) 2분전에 갱신된 소요시간이 10분이라면 8분이 남았다고 반
 		},
 		{
 			"nickname": "올리브",
+			"status": "ARRIVED"
+			"durationMinutes": 0
+		},
+		{
+			"nickname": "해음",
+			"status": "ARRIVED"
+			"durationMinutes": 0
+		},
+		{
+			"nickname": "카키공주",
+			"status": "MISSING"
+			"durationMinutes": -1
+		}
+	]
+}
+```
+
+이렇게 API에 대한 전반적인 내용을 확정하고 페어인 카키와 함께 로직 구현에 들어갔다.
+
+---
+
+#### **2-2) 로직 구현하기**
+
+먼저 코드 작성에 들어가기 전에 상태 판단 알고리즘의 전반적인 흐름을 화이트보드에 쭉 정리해보았다.
+
+![img_30.png](imgs/img_30.png)
+
+이를 순서도로 다시 도식화하면 다음과 같다.
+
+![img_28.png](imgs/img_28.png)
+
+로직이 복잡한 만큼 bottom-up 방식으로 구현해보기로 했다.
+
+---
+
+**1) 하위 모듈 만들기 : DistanceCalculator**
+
+먼저 두 위 경도 좌표 간에 직선 거리를 계산하는 DistanceCalculator를 만들었다.
+
+![img_27.png](imgs/img_27.png)
+
+공식은 하버사인 공식을 사용했다.
+=======
 			"status": "ARRIVED",
 			"durationMinutes": 0
 		}
@@ -238,6 +284,7 @@ public class DistanceCalculator {
         ...// 하버사인 공식을 활용하여 직선 거리 계산
     }
 ```
+
 ---
 
 ### **2) 도착 예정정보 판단 로직 작성하기**
@@ -285,7 +332,6 @@ public enum EtaStatus {
     }
 }
 ```
-
 ---
 
 ### **3) 서비스 정책에 따른 조건식을 private method로 만들어주기**
@@ -314,8 +360,6 @@ public enum EtaStatus {
         return !mateEta.isModified() || mateEta.differenceMinutesFromLastUpdated() >= ODSAY_CALL_CYCLE_MINUTES;
     }
 ```
-
----
 
 ### **4) EtaService 구현하기**
 
@@ -544,4 +588,3 @@ public enum EtaStatus {
 
 직접 하나의 기능을 맡아 책임감있게 기능을 안정화하는 과정에서 많은 걸 배웠습니다.
 폴링, 더 나은 객체지향을 위한 개발자의 태도까지 사람은 항상 겸손해야 하며 점진적으로 더 나은 무언가를 향해 정진해야함을 다시금 되새겼던 기회가 아니었나 싶습니다.
-
