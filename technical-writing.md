@@ -8,6 +8,7 @@ Suspense란, 리액트에서 비동기 작업이 완료될 때 까지 대체 컴
 
 <img src="./image/tech/pending.png" style="height: 350px">
 
+
 ## Suspense 기본 문법
 
 Suspense는 두 가지 주요 props를 받습니다. 첫 번째는 Promise를 catch 했을 때, 보여줄 fallback UI이고, 두 번째는 Promise를 던질 자식 컴포넌트입니다. 즉, fallback 속성에는 로딩 중에 표시될 컴포넌트를 지정하고, children에는 비동기 작업을 수행하는 자식 컴포넌트를 배치합니다.
