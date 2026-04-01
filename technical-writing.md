@@ -1,0 +1,328 @@
+사용자가 이미지를 업로드할 때, 서버 부하 없이 빠르게 처리할 수 있는 구조가 필요했다.
+이를 위해 Presigned URL 기반 S3 직접 업로드와 Lambda 자동 변환(WebP·리사이즈) 파이프라인을 구축했다.
+
+### 문제인식
+
+초기에는 백엔드 서버가 사용자의 이미지를 받아 S3에 재업로드했다. 그러나 다음과 같은 문제가 발생했다.
+
+- 1. 대용량 이미지 전송으로 서버 트래픽/CPU/메모리 부담 증가
+- 2. 클라이언트 → 서버 → S3 두 번의 전송 비용
+- 3. 업로드 포맷이 제각각이라 용량 비효율 및 이미지 일관성 부족
+
+### 개선 방향
+
+이를 Presigned URL 기반 구조로 전환했다.
+클라이언트가 서버로부터 URL을 발급받아 S3에 직접 업로드하고,
+S3 업로드 이벤트를 트리거로 Lambda가 Sharp를 이용해 자동 변환·리사이즈하도록 했다.
+
+전체 아키텍처를 시각화하면 아래와 같다.
+
+```
+[Client] ─(1) GET /presigned-url→ [Backend]
+    ↓
+(2) PUT image.jpg → [S3 Bucket]
+    ↓
+(3) S3 Event Trigger → [Lambda Function]
+    ↓
+(4) Lambda uses Sharp to resize + convert WebP
+    ↓
+(5) Save to S3 /resized-image/ directory
+```
+
+- 백엔드가 S3 PutObject에 대한 Presigned URL을 발급
+- 프론트는 그 URL로 직접 PUT 업로드 (서버를 안 거침)
+- S3 업로드 완료 이벤트로 Lambda 자동 실행 → 변환/리사이즈 후 별도 프리픽스에 저장
+
+핵심은 백엔드에서 S3 PutObjectCommand 기반 presigned URL를 발급하면 프론트엔드는 이 presigned URL을 통해 직접 S3에 업로드할 수 있다는 점이다.
+이제 자세한 구현 방법에 대해서 알아보자.
+
+# Presigned URL이란?
+
+서버가 AWS 자격증명으로 특정 S3 객체에 대한 요청(PutObject/GetObject)을 짧은 유효기간의 서명 URL로 만들어 클라이언트에 전달하는 방식이다.
+즉, 서버가 대신 서명한 일시적 접근 권한이다.
+
+- ⏱️ 일정 시간이 지나면 자동 무효
+- 🔒 클라이언트는 AWS Key 없이 업로드 가능
+- ⚡ 네트워크 부하와 비용 절감
+
+결과적으로, 클라이언트는 자격증명 없이도 이 URL만 있으면 직접 S3에 업/다운로드가 가능하다.
+
+![](https://velog.velcdn.com/images/eunwoo1341/post/ca2ce37a-5587-48d1-b984-477a35394e15/image.png)
+
+## Presigned URL 사용하는 이유
+
+- 성능/비용: 이미지·대용량 파일을 백엔드를 경유하지 않고 곧바로 S3로 전송 → 서버 트래픽·CPU·메모리 부담↓, 네트워크 비용↓.
+- 보안: 자격증명을 프론트에 노출하지 않음. URL은 짧은 만료시간이 있어 유출 리스크를 최소화.
+- 단순성: 프론트는 딱 URL 하나로 업/다운로드 fetch/PUT 하면 끝.
+
+# React에서 Presigned URL 수령 및 AWS S3 업로드 로직 구현하기
+
+# 1. 백엔드로부터 Presigned URL 수령
+
+처음에 백엔드로부터 Presigned URL을 받아와서 프론트엔드에서 사용하도록 구현했다.
+
+```tsx
+interface PresignedUrlRequest {
+  imageName: string;
+  imageType: string;
+}
+
+interface PresignedUrlResponse {
+  presignedUrl: string;
+  filePath: string;
+}
+
+const getPresignedUrl = async (data: PresignedUrlRequest): Promise<PresignedUrlResponse> => {
+  const response = await api.post('/storage/upload-url', data);
+  return response.data.data;
+};
+```
+
+PresignedUrl를 받기 위해 Client 측에서는 imageName과 imageType을 body로 전달한다.
+이를 통해 백엔드는 AWS로부터 PresignedUrl을 발급하여 Client에 전달한다.
+
+## 2. 받은 PresignedUrl를 통해 AWS S3에 업로드
+
+Client에서는 백엔드로부터 받은 PresignedUrl을 통해 S3에 업로드를 한다.
+
+이후 받은 PresignedUrl를 통해 Client에서 s3에 직접 업로드하기 위해 아래와 같이 함수를 구현하였다.
+
+```tsx
+export const uploadImageToS3 = async (presignedUrl: string, file: FileType): Promise<void> => {
+  const response = await axios.put(presignedUrl, file, {
+    headers: {
+      'Content-Type': file.type,
+    },
+  });
+
+  if (response.status !== 200) {
+    throw new Error(`Failed to upload image: ${response.statusText}`);
+  }
+};
+```
+
+# Image 미리보기 로직 구현하기
+
+아래 코드는 실제 프로젝트에 적용한 훅이며, 로컬 미리보기(Blob URL) 를 먼저 보여준 뒤, 업로드 완료 후 S3 경로로 미리보기 주소를 교체하는 로직을 구현하였다.
+
+```tsx
+export const useFileUpload = ({ onImageChange }: UseFileUploadProps) => {
+  const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { mutateAsync: getPresignedUrl } = usePresignedUrlMutation();
+
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    const file = files[0];
+
+    setUploading(true);
+    try {
+      // 1) Presigned URL 발급
+      const { presignedUrl, filePath } = await getPresignedUrl({
+        imageName: file.name,
+        imageType: file.type,
+      });
+
+      // 2) 즉시 사용자에게 로컬 미리보기를 보여줌
+      const localPreviewUrl = window.URL.createObjectURL(file);
+
+      const tempUploadedImage: UploadedImage = {
+        file,
+        imageUrl: filePath, // 업로드될 S3 원본 경로
+        imageName: file.name,
+        previewUrl: localPreviewUrl, // 먼저 Blob URL로 즉시 프리뷰
+      };
+
+      setUploadedImage(tempUploadedImage);
+      onImageChange({ imageUrl: filePath, imageName: file.name });
+
+      // 3) S3로 실제 업로드
+      await uploadImageToS3(presignedUrl, file);
+
+      // 4) 업로드 성공 시, 프리뷰를 S3 실제 URL로 교체
+      setUploadedImage((prev) => ({ ...prev!, previewUrl: filePath }));
+
+      // (선택) Blob URL 메모리 해제
+      window.URL.revokeObjectURL(localPreviewUrl);
+    } catch (error) {
+      console.error('Failed to process image:', error);
+      alert('이미지 처리에 실패했습니다. 다시 시도해주세요.');
+    } finally {
+      setUploading(false);
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const removeImage = () => {
+    if (uploadedImage) {
+      if (uploadedImage.previewUrl.startsWith('blob:')) {
+        window.URL.revokeObjectURL(uploadedImage.previewUrl);
+      }
+      setUploadedImage(null);
+      onImageChange(null);
+    }
+  };
+
+  const triggerFileInput = () => fileInputRef.current?.click();
+
+  return {
+    uploadedImage,
+    uploading,
+    fileInputRef,
+    handleFileSelect,
+    removeImage,
+    triggerFileInput,
+    canAddImage: !uploadedImage && !uploading,
+  };
+};
+```
+
+![](https://velog.velcdn.com/images/eunwoo1341/post/1b02221c-b0fe-4035-b61c-2ed5b629b53d/image.png)
+
+## 업로드 완료 후 실제 S3 URL로 교체
+
+여기서 굳이 로컬 미리보기로 계속 보여주면 되는데,
+왜 "로컬 미리보기 → 실제 S3 URL"로 교체하나? 라는 의문이 생길 수 있다.
+장점으로는 아래와 같다.
+
+- 1. 사용자 경험(속도)
+     업로드 완료를 기다리지 않고, 즉시 미리보기를 보여줄 수 있다.
+     대용량 파일도 바로 피드백을 주므로 업로드 체감이 좋아진다.
+
+- 2. 메모리 관리
+     Blob URL은 메모리를 잡아먹는다. 업로드 성공 시 S3 URL로 교체 + URL.revokeObjectURL 로 메모리 회수.
+
+- 3. 공유/새로고침/SSR 친화성
+     Blob URL은 로컬 세션 한정이라 새로고침/다른 기기 공유에 불리함.
+     S3 URL은 영속적이므로, 새로고침/딥링크/SSR 스냅샷/오픈그래프 등에서 깨지지 않는다.
+
+- 4. 캐싱 & CDN(CloudFront) 예열
+     실제 URL로 바꾸면 브라우저/CloudFront에 캐시가 잡힌다. 동일 리소스 재요청 시 속도 향상.
+     목록 화면이나 상세 화면 전환 시 초기 LCP 개선에 기여.
+
+# CloudFront 설정으로 인한 Image 최적화
+
+많은 Image들을 브라우저에 로드하는 경우에는 효율적이고 빠르게 이미지를 사용자에게 보여주기 위해서 CloudFront에 캐시를 잡아두도록 하였다.
+
+![](https://velog.velcdn.com/images/eunwoo1341/post/9e3f54fa-69f3-4f31-ac3e-98b2051c0114/image.png)
+
+Cloudfront의 Origin을 이미지가 담긴 S3 Bucket과 연동하여 이미지를 가져오도록 하였다.
+그러면 결과적으로 아래와 같이 네트워크 탭에서 이미지를 가져오는 것을 확인할 수 있다.
+
+![](https://velog.velcdn.com/images/eunwoo1341/post/7ec859bc-2fbb-45ff-86f7-c004b827dfff/image.png)
+
+# AWS Lambda 함수를 통하여 WebP 변환 및 리사이즈 최적화
+
+AWS Lambda 함수를 통하여 WebP 변환 및 리사이즈를 하여 이미지 최적화 작업을 하였다.
+이전에는 사용자가 JPG, JPEG, PNG 등 다양한 포맷으로 이미지를 업로드하면 S3에 저장되고, 이후 크기가 큰 원본 Image들이 브라우저에 그대로 로드되었다.
+이는 브라우저에서 이미지를 표시하기 위해 더 많은 메모리와 네트워크 비용이 소요되었다.
+
+따라서 Lambda 함수를 통하여 WebP 변환 최적화하여 사용자에게 더 빠르게 이미지를 보여주도록 하였다.
+
+![](https://velog.velcdn.com/images/eunwoo1341/post/d802ac26-7a08-4245-8be8-cafb1decbd13/image.png)
+
+이미지가 저장된 S3 Bucket과 연동을 하여 해당 Bucket에 이미지가 올라오면 Trigger를 통하여 Lambda 함수가 실행되도록 하였다.
+webp 변환 및 리사이즈를 하는 Lambda 함수의 코드는 아래와 같다.
+
+```tsx
+// index.js
+const { S3Client, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { Readable } = require('stream');
+const sharp = require('sharp');
+
+const s3 = new S3Client({ region: 'ap-northeast-2' }); // 리전은 환경에 맞게 변경
+
+exports.handler = async (event) => {
+  const bucket = event.Records[0].s3.bucket.name;
+  // decodeURIComponent를 사용해 한글 깨짐 방지
+  const key = decodeURIComponent(event.Records[0].s3.object.key.replace(/\+/g, ' '));
+
+  // 리사이즈된 이미지나 특정 경로의 이미지는 처리하지 않음 (무한업로드 방지)
+  if (key.startsWith('resized-image/')) {
+    return;
+  }
+
+  const fileName = key.split('/').pop();
+  const baseFileName = fileName.split('.').slice(0, -1).join('.'); // 확장자를 제외한 파일명만 추출
+  // resized-image 폴더에 리사이징 완료한 이미지(resized-{파일명}.webp) 형식으로 저장
+  const dstKey = `resized-image/resized-${baseFileName}.webp`;
+
+  try {
+    const response = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    var stream = response.Body;
+
+    if (!stream instanceof Readable) {
+      console.log('Unknown object stream type');
+      return;
+    }
+
+    const content_buffer = Buffer.concat(await stream.toArray());
+
+    const width = 90; // 리사이징 후 너비
+    const height = 90; // 리사이징 후 높이
+
+    const output = await sharp(content_buffer)
+      .resize(width, height, { fit: 'inside' }) // 비율을 유지하면서 꽉 차게 리사이즈
+      .webp({ lossless: true }) // 무손실 webp로 변환
+      .toBuffer();
+
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: dstKey,
+        Body: output,
+        ContentType: 'image/webp',
+      })
+    );
+
+    console.log('Successfully resized and uploaded');
+  } catch (error) {
+    console.error('Error processing file', error);
+  }
+};
+```
+
+위와 같이 Code를 작성하고 Deploy하였지만 CloudWatch에서 에러가 발생하였다.
+에러 로그에서 `sharp` 라이브러리가 없다는 에러가 발생하였다.
+
+이후에 본인 로컬에서 `sharp` 라이브러리를 설치하고 해당 파일들을 Zip으로 압축하여 Lambda `.Zip file`을 Upload하였다.
+
+최종적으로 아래와 같이 파일들이 존재하게 된다.
+
+```
+📦lambda-S3
+ ┣ 📂node_modules
+ ┣ 📜index.js
+ ┣ 📜package-lock.json
+ ┗ 📜package.json
+```
+
+![](https://velog.velcdn.com/images/eunwoo1341/post/64dd702e-7938-4bb1-a952-1da49972e7bc/image.png)
+
+해당 최적화 작업을 하고 나면 아래와 같이 이미지의 크기가 줄어들고 포맷이 webp로 변환되어 저장되는 것을 확인할 수 있다.
+
+![](https://velog.velcdn.com/images/eunwoo1341/post/21766da0-6ece-45d3-8c2c-db63e6ac1124/image.png)
+
+- Image 최적화 전
+
+![](https://velog.velcdn.com/images/eunwoo1341/post/bc9f64cc-26c5-4f80-a20a-496a46fb4e7f/image.png)
+
+- Image 최적화 후
+
+rocket의 Image가 1.8MB에서 5.2KB, 즉 97% 이나 줄어든 것을 알 수 있다.
+
+# 마무리
+
+이번 작업을 통해 Presigned URL → S3 직업로드 → S3 이벤트 → Lambda(Sharp) 변환/리사이즈로 이어지는 파이프라인을 안정적으로 구축했다. 결과적으로,
+
+서버 부하·네트워크 비용을 획기적으로 절감했고,
+WebP 표준화와 리사이즈로 용량·로드시간·LCP가 유의미하게 개선되었으며,
+로컬 미리보기(Blob) → 실제 S3 URL 교체 전략으로 UX·캐싱·공유성까지 챙길 수 있었다.
+복잡한 이미지 처리 로직을 백엔드 애플리케이션에서 분리하여 S3/Lambda로 오프로드한 덕분에, 프론트엔드 개발 흐름은 더 단순해지고 운영 비용은 더 낮아졌다.
